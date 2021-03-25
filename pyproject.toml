@@ -10,6 +10,7 @@ fastapi = "^0.63.0"
 GitPython = "^3.1.14"
 uvicorn = "^0.13.4"
 python-multipart = "^0.0.5"
+aiofiles = "^0.6.0"
 
 [tool.poetry.dev-dependencies]
 
