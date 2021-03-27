@@ -1,7 +1,7 @@
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, Body
 from starlette.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from git import Repo, Actor
 from pathlib import Path
 import os
@@ -22,9 +22,50 @@ else:
 
 # The app for file controller
 app = FastAPI(title="Configuration File Backups")
+
+# set up cors
+origins = ["*"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
+
+# mount some static dirs for the app
 app.mount("/downloads", StaticFiles(directory="workspace"), name="downloads")
 app.mount("/app", StaticFiles(directory="frontend/build"), name="app")
 app.mount("/static", StaticFiles(directory="frontend/build/static"), name="app-static")
+
+
+##
+## Git functions
+##
+def is_exists(filename, sha):
+    """Check if a file in current commit exist."""
+    files = gitrepo.git.show("--pretty=", "--name-only", sha)
+    if filename in files:
+        return True
+
+def get_file_commits(filename, commits):
+    file_commits = []
+    for commit in commits:
+        if is_exists(filename, commit.hexsha):
+            # flatten out the commit object 
+            # so it can be serialized
+            commit_dict = {
+                "sha1": commit.hexsha,
+                "author": {
+                    "name": commit.author.name,
+                    "email": commit.author.email
+                },
+                "message": commit.message,
+                "committed_datetime": commit.committed_datetime
+            }
+            file_commits.append(commit_dict)
+
+    return file_commits
 
 @app.get("/status")
 async def read_index():
@@ -86,8 +127,20 @@ async def add_to_index(author_name: Optional[str] = Body(...), author_email: Opt
 async def read_workspace(rest_of_path: Optional[str] = None):
     read_path = os.path.join(workspace, rest_of_path)
 
+
     if os.path.isfile(read_path):
-        return FileResponse(read_path, media_type="text/plain")
+        commits = list(gitrepo.iter_commits("master", max_count=20))
+        file_data = {}
+        path_parts = rest_of_path.split('/')
+        file_data['name'] = path_parts[-1]
+
+        # get the commits for this file
+        file_data['commits'] = get_file_commits(file_data['name'], commits)
+
+        with open(read_path, 'r') as config_file:
+            file_data["content"] = config_file.read()
+
+        return file_data
     path_parent = str(Path(read_path).parent)[len(workspace):] + '/'
 
     listing = {}
